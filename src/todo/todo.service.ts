@@ -2,39 +2,55 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { CreateTodoDto } from './dto/create-todo.dto';
 import { UpdateTodoDto } from './dto/update-todo.dto';
 import { Todo } from './entities/todo.entity';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import { UserService } from 'src/user/user.service';
 
 @Injectable()
 export class TodoService {
-  db: Todo[];
+  constructor(
+    @InjectRepository(Todo)
+    private todoRepository: Repository<Todo>,
+    private userService: UserService,
+  ) {}
 
-  create(createTodoDto: CreateTodoDto) {
-    this.db.push({
-      id: this.db.length,
-      ...createTodoDto,
-      state: 'todo',
-    });
+  async create(createTodoDto: CreateTodoDto, userId: number) {
+    const user = await this.userService.readOne(userId);
+    const todo = new Todo();
+    todo.user = user;
+    todo.name = createTodoDto.name;
+    todo.state = createTodoDto.state;
+    const created = await this.todoRepository.save(todo);
+    return created.id;
   }
 
-  findAll() {
-    return this.db;
+  async findAll(userId: number) {
+    const user = await this.userService.readOne(userId);
+    return await this.todoRepository.findBy({ user });
   }
 
-  findOne(id: number) {
-    return this.db.find((todo) => todo.id === id);
-  }
-
-  update(id: number, updateTodoDto: UpdateTodoDto) {
-    const todo = this.findOne(id);
-    if (!todo) {
-      throw new NotFoundException(`Todo with id ${id} not found`);
+  async findOne(id: number, userId: number) {
+    const user = await this.userService.readOne(userId);
+    const result = await this.todoRepository.findOneBy({ user, id });
+    if (!result) {
+      throw new NotFoundException();
     }
-    const newTodo = { ...todo, ...updateTodoDto };
-    const idx = this.db.findIndex((todo) => todo.id === id);
-    this.db.splice(idx, 1, newTodo);
+    return result;
   }
 
-  remove(id: number) {
-    const idx = this.db.findIndex((todo) => todo.id === id);
-    this.db.splice(idx, 1);
+  async update(id: number, updateTodoDto: UpdateTodoDto, userId: number) {
+    const todo = await this.findOne(id, userId);
+    Object.assign(todo, updateTodoDto);
+    await this.todoRepository.save(todo);
+  }
+
+  async remove(id: number, userId: number) {
+    const result = await this.todoRepository.delete({
+      id,
+      user: { id: userId },
+    });
+    if (!result.affected || result.affected < 1) {
+      throw new NotFoundException();
+    }
   }
 }
